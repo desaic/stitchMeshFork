@@ -17,7 +17,6 @@
 *********************************************************************************/
 
 #include "Dual.h"
-
 DualGraph::DualGraph(HE_Polyhedron* ply) {
     _poly = ply;
     /* Construct the dual graph from ply */
@@ -1221,341 +1220,122 @@ void DualGraph::loadGurobiResult(std::string pFilename, bool pFlip)
 	uvfile.close();
 }
 
-void DualGraph::gurobiSolverHori()
-{
-#ifdef USE_GUROBI
-	try {
-		GRBEnv* env = 0;
-		env = new GRBEnv();
+void DualGraph::FloodLabels(int fIn, std::vector<int>& labels,
+                            std::vector<bool>& visited) {
+  std::deque<int> q;
+  q.push_back(fIn);
+  while (!q.empty()) {
+    int fi = q.front();
+    q.pop_front();
 
-		env->set(GRB_IntParam_PoolSolutions, 1024);
-		//env->set(GRB_DoubleParam_PoolGap, 1e-12f);
+    HE_Face* f = _poly->face(fi);
+    if (visited[fi]) {
+      continue;
+    }
+    int offset = _idxOffsets[fi];
+    int outdegree = f->NumHalfEdge();
+    if (!(outdegree == 3 || outdegree == 4)) {
+      std::cout << "DualGraph::FloodLabels() can only handle "
+                   "triangles and quads\n";
+      continue;
+    }
 
-		GRBModel model = GRBModel(*env);
-
-		std::vector<int> hePolyMappingHori;
-		std::vector<int> heHoriMappingPoly;
-
-		int numVars = 0;
-		for (int ei = 0; ei < _poly->numHalfEdges(); ei++)
-		{
-			if (_poly->halfedge(ei)->TestFlag(EFLAG_HORIZONTAL))
-			{
-				hePolyMappingHori.push_back(numVars);
-				heHoriMappingPoly.push_back(ei);
-				numVars++;
-			}
-			else
-			{
-				hePolyMappingHori.push_back(-1);
-			}
-		}
-		std::cout << "Vars number: " << numVars << std::endl;
-
-		// Create variables
-		GRBVar* grbVars = (GRBVar*)malloc(sizeof(GRBVar) * numVars);
-		for (int i = 0; i < numVars; i++)
-		{
-			std::string x = 'x' + std::to_string(i);
-			grbVars[i] = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, x);
-		}
-
-		// Add constraint: 
-		std::string c;
-		int ci = 0;
-		for (int fi = 0; fi < _poly->numFaces(); fi++)
-		{
-			const HE_Face* f = _poly->face(fi);
-			HE_Face::const_edge_circulator e = f->begin();
-			HE_Face::const_edge_circulator sentinel = e;
-			int horiCount = 0;
-			std::vector<int> horiIdx;
-			do
-			{
-				const HE_HalfEdge* he = *e;
-
-				if (he->TestFlag(EFLAG_HORIZONTAL))
-				{
-					horiIdx.push_back(he->index());
-					horiCount++;
+    if (outdegree == 3) {
+    } else if (outdegree == 4) {
+      // find first neighbor with known edge value.
+      bool hasKnownEdge = false;
+      int knownIndex = 0;
+      const auto* e = f->edge();
+      int fi = e->face()->index();
+      const DualNode & dn = _dualnodes[fi];
+      for (int ni = 0; ni < outdegree; ni++) {
+        if (e->isBoundary()) {
+          continue;
 				}
-
-				++e;
-			} while (e != sentinel);
-
-			if (horiCount == 2)
-			{
-				c = 'c' + std::to_string(ci) + '0';
-				model.addConstr(grbVars[hePolyMappingHori[horiIdx[0]]] + grbVars[hePolyMappingHori[horiIdx[1]]], GRB_EQUAL, 1, c);
-				ci++;
-			}
-		}
-
-		GRBQuadExpr obje;
-		GRBVar* tmpVar_0;
-		GRBVar* tmpVar_1;
-		
-		for (int ei = 0; ei < _poly->numHalfEdges(); ei++)
-		{
-			HE_HalfEdge* he = _poly->halfedge(ei);
-			if (he->TestFlag(EFLAG_HORIZONTAL) && he->twin()->TestFlag(EFLAG_HORIZONTAL))
-			{
-				tmpVar_0 = &grbVars[hePolyMappingHori[he->index()]];
-				tmpVar_1 = &grbVars[hePolyMappingHori[he->twin()->index()]];
-				obje += (1.0f - (*tmpVar_0 - *tmpVar_1) * (*tmpVar_0 - *tmpVar_1));
-			}
-		}
-
-		model.setObjective(obje, GRB_MINIMIZE);
-
-		// Optimize model		
-		model.optimize();
-
-		if (model.get(GRB_IntAttr_Status) == GRB_OPTIMAL)
-		{
-			for (int fi = 0; fi < _poly->numFaces(); fi++)
-			{
-				HE_Face* f = _poly->face(fi);
-
-				if (f->TestFlag(VEF_FLAG_QUAD))
-				{
-					if (grbVars[hePolyMappingHori[f->edge()->index()]].get(GRB_DoubleAttr_X) > 0.5f)
-						f->edge(f->edge()->next()->next());
+        if (e->degenerate()) {
+          continue;
 				}
-
-				//HE_Face::const_edge_circulator e = f->begin();
-				//HE_Face::const_edge_circulator sentinel = e;
-				//int horiCount = 0;
-				//std::vector<int> horiIdx;
-				//do
-				//{
-				//	const HE_HalfEdge* he = *e;
-
-				//	if (he->TestFlag(EFLAG_HORIZONTAL))
-				//	{
-				//		horiIdx.push_back(he->index());
-				//		horiCount++;
-				//	}
-
-				//	++e;
-				//} while (e != sentinel);
-
-				//if (horiCount == 2)
-				//{
-				//	std::cout 
-				//		<< grbVars[hePolyMappingHori[horiIdx[0]]].get(GRB_DoubleAttr_X) << " "
-				//		<< grbVars[hePolyMappingHori[horiIdx[1]]].get(GRB_DoubleAttr_X) << " | ";
-				//}
-			}
-
-			//for (int i = 0; i < (int)_groupnodes.size(); i++)
-			//{
-			//	if (_groupnodes[i]._needFlip)
-			//	{
-			//		for (int fi = 0; fi < (int)_groupFaceIdx[i].size(); fi++)
-			//		{
-			//			HE_Face* f = _poly->face(_groupFaceIdx[i][fi]);
-			//			if (f->TestFlag(VEF_FLAG_QUAD))
-			//			{
-			//				f->edge(f->edge()->next());
-			//				f->edge(f->edge()->next());
-			//			}
-			//			else if (f->TestFlag(VEF_FLAG_INC))
-			//			{
-			//				f->ClearFlag(VEF_FLAG_INC);
-			//				f->SetFlag(VEF_FLAG_DEC);
-			//			}
-			//			else if (f->TestFlag(VEF_FLAG_DEC))
-			//			{
-			//				f->ClearFlag(VEF_FLAG_DEC);
-			//				f->SetFlag(VEF_FLAG_INC);
-			//			}
-			//			else if (f->TestFlag(VEF_FLAG_SHORTROW_L))
-			//			{
-			//				f->ClearFlag(VEF_FLAG_SHORTROW_L);
-			//				f->edge(f->edge()->next());
-			//				f->SetFlag(VEF_FLAG_SHORTROW_R);
-			//			}
-			//			else if (f->TestFlag(VEF_FLAG_SHORTROW_R))
-			//			{
-			//				f->ClearFlag(VEF_FLAG_SHORTROW_R);
-			//				f->edge(f->edge()->prev());
-			//				f->SetFlag(VEF_FLAG_SHORTROW_L);
-			//			}
-			//		}
-			//	}
-			//}
-
-			//for (int i = 0; i < (int)_groupnodes.size(); i++)
-			//{
-			//	if (_groupnodes[i]._needFlip)
-			//	{
-			//		reverse(_groupFaceIdx[i].begin(), _groupFaceIdx[i].end());
-			//	}
-			//}
-		}
-		else
-		{
-			std::cout << "No solution" << std::endl;
-		}
-	}
-	catch (GRBException e) {
-		std::cout << "Error code = " << e.getErrorCode() << std::endl;
-		std::cout << e.getMessage() << std::endl;
-	}
-	catch (...) {
-		std::cout << "Exception during optimization" << std::endl;
-	}
-#endif
+        int ei0 = e->index();
+        int ei1;
+        const DualEdge& de = _dualedges[dn.edge(ni)];
+        if (de._hei[0] == ei0) {
+          ei1 = de._hei[1];
+        } else {
+          ei1 = de._hei[0];
+				}
+        if (labels[offset + ni] != 2) {
+          hasKnownEdge = true;
+          knownIndex = ni;
+          break;
+        }
+      }
+      if (hasKnownEdge) {
+      } else {
+      }
+    }
+  }
 }
 
-void DualGraph::gurobiSolver(std::string pFilename)
-{
-#ifdef USE_GUROBI
-	try {
-		GRBEnv* env = 0;
-		env = new GRBEnv();
+std::vector<int> DualGraph::SolveLabels() {
+	int numVars = 0;
+  for (int fi = 0; fi < _poly->numFaces(); fi++) {
+    HE_Face* f = _poly->face(fi);
+    if (f->hole()) continue;
+    numVars += f->NumHalfEdge();
+  }
+  std::vector<int> labels(numVars, 0);
+  std::vector<bool> visited(_poly->numFaces(), false);
+  for (int fi = 0; fi < _poly->numFaces(); fi++) {
+    HE_Face* f = _poly->face(fi);
+    if (f->hole()) continue;
 
-		GRBModel model = GRBModel(*env);
+    int offset = _idxOffsets[fi];
+    int outdegree = f->NumHalfEdge();
+    FloodLabels(fi, labels, visited);
+  }
+  return labels;
+}
 
-		int numVars = 0;
+void DualGraph::gurobiSolver() {
+  int numVars = 0;
+  _gurobiResultPool.clear();
+  std::cout << "Face number: " << _poly->numFaces() << std::endl;
+  std::cout << "Halfedge number: " << _poly->numHalfEdges() << std::endl;
 
-		std::cout << "Face number: " << _poly->numFaces() << std::endl;
-		std::cout << "Halfedge number: " << _poly->numHalfEdges() << std::endl;
+  for (int fi = 0; fi < _poly->numFaces(); fi++) {
+    HE_Face* f = _poly->face(fi);
+    if (f->hole()) continue;
+    _idxOffsets.push_back(numVars);
+    numVars += f->NumHalfEdge();
+  }
+  std::vector<int> edgeLabel = SolveLabels();
+  std::vector<bool> solution(edgeLabel.size(), 0);
+  std::ofstream uvfile("F:/dump/edge_labels.txt");
+  for (int i = 0; i < numVars; i++) {    
+    solution[i] = (edgeLabel[i] == 1);
+    uvfile << int(edgeLabel[i] == 1) << "\n";
+  }
+  uvfile.close();
+  /* set halfedge flag */
+  int fi = 0;
+  for (HE_Polyhedron::const_face_iterator it = _poly->fBegin();
+       it != _poly->fEnd(); ++it, fi++) {
+    const HE_Face* f = *it;
+    if (f->hole()) continue;
 
- 		for (int fi = 0; fi < _poly->numFaces(); fi++)
-		{
-			HE_Face* f = _poly->face(fi);
+    int offset = _idxOffsets[fi];
+    int outdegree = f->NumHalfEdge();
+    HE_Face::const_edge_circulator e = f->begin();
+    for (int i = 0; i < outdegree; i++, e++) {
+      HE_HalfEdge* he = _poly->halfedge((*e)->index());
+      if (solution[offset + i])
+        he->SetFlag(EFLAG_HORIZONTAL);
+      else
+        he->SetFlag(EFLAG_VERTICAL);
+    }
+  }
+  _gurobiResultPool.push_back(solution);
 
-			if (f->hole())  continue;
-
-			_idxOffsets.push_back(numVars);
-			numVars += f->NumHalfEdge();
-		}
-
-		// Create variables
-		GRBVar* grbVars = (GRBVar*)malloc(sizeof(GRBVar) * numVars);
-
-		for (int i = 0; i < numVars; i++)
-		{
-			std::string x = 'x' + std::to_string(i);
-			grbVars[i] = model.addVar(0.0, 1.0, 0.5, GRB_BINARY, x);
-		}
-
-		// Add constraint: 
-		// Fi0 = Fi2
-		// Fi1 = Fi3
-		// Fi0 + Fi1 = 1
-
-		std::string c;
-		for (int fi = 0; fi < _poly->numFaces(); fi++)
-		{
-			HE_Face* f = _poly->face(fi);
-
-			if (f->hole()) continue;
-
-			int offset = _idxOffsets[fi];
-			int outdegree = f->NumHalfEdge();
-			if (outdegree == 3) {
-				c = 'c' + std::to_string(fi) + '0';
-				model.addConstr(grbVars[offset + 0] + grbVars[offset + 1] + grbVars[offset + 2], GRB_GREATER_EQUAL, 1, c);
-
-				c = 'c' + std::to_string(fi) + '1';
-				model.addConstr(grbVars[offset + 0] + grbVars[offset + 1] + grbVars[offset + 2], GRB_LESS_EQUAL, 2, c);
-			}
-			else if (outdegree == 4) {
-				c = 'c' + std::to_string(fi) + '0';
-				model.addConstr(grbVars[offset + 0], GRB_EQUAL, grbVars[offset + 2], c);
-
-				c = 'c' + std::to_string(fi) + '1';
-				model.addConstr(grbVars[offset + 1], GRB_EQUAL, grbVars[offset + 3], c);
-
-				c = 'c' + std::to_string(fi) + '2';
-				model.addConstr(grbVars[offset + 0] + grbVars[offset + 1], GRB_EQUAL, 1.0f, c);
-
-				c = 'c' + std::to_string(fi) + '3';
-				model.addConstr(grbVars[offset + 0] + grbVars[offset + 1] + grbVars[offset + 2] + grbVars[offset + 3], GRB_EQUAL, 2.0f, c);
-			}
-			else {
-				std::cout << "ERROR: shouldn't be here!\n";
-			}
-		}
-	
-		GRBQuadExpr obje;
-		float weight;
-		for (int i = 0; i < numEdges(); i++)
-		{
-			DualEdge tmpde = _dualedges[i];
-			int f0 = tmpde._fi[0], f1 = tmpde._fi[1];
-			HE_HalfEdge* he0 = _poly->halfedge(tmpde._hei[0]);
-			HE_HalfEdge* he1 = _poly->halfedge(tmpde._hei[1]);
-			int idx0 = _poly->face(f0)->HalfEdgeIdx(he0);
-			int idx1 = _poly->face(f1)->HalfEdgeIdx(he1);
-
-			if (_poly->face(f0)->hole() || _poly->face(f1)->hole()) continue;
-
-			weight = 1.0f;
-			obje += weight * (grbVars[_idxOffsets[f0] + idx0] - grbVars[_idxOffsets[f1] + idx1]) * (grbVars[_idxOffsets[f0] + idx0] - grbVars[_idxOffsets[f1] + idx1]);
-		}
-
-		std::cout << "variables number: " << numVars << std::endl;
-#if 1
-		model.setObjective(obje, GRB_MINIMIZE);
-
-		// Optimize model		
-		model.optimize();
-
-		if (model.get(GRB_IntAttr_Status) == GRB_OPTIMAL)
-		{
-			_nSolutions = model.get(GRB_IntAttr_SolCount);
-			std::cout << "Number of solutions found: " << _nSolutions << std::endl;
-
-			_nSolutions = 1;
-
-			for (int e = 0; e < _nSolutions; e++) {
-
-				std::ofstream uvfile;
-				std::string uv_config = pFilename + "_uv_config.txt";
-				uvfile.open(uv_config);
-				
-				model.set(GRB_IntParam_SolutionNumber, e);
-
-				std::vector<bool> gurobiResult;
-				gurobiResult.clear();
-				int fidx = 1;
-				for (int i = 0; i < numVars; i++)
-				{
-					gurobiResult.push_back(grbVars[i].get(GRB_DoubleAttr_X) > 0.5f);
-
-					if (grbVars[i].get(GRB_DoubleAttr_X) > 0.5f)
-						uvfile << int(1) << " ";
-					else 
-						uvfile << int(0) << " ";
-
-					if (i == (_idxOffsets[fidx] - 1)) 
-						fidx++;
-				}
-
-				uvfile.close();
-
-				_gurobiResultPool.push_back(gurobiResult);
-			}
-		}
-		else
-		{
-			std::cout << "No solution" << std::endl;
-		}
-
-#endif
-	}
-	catch (GRBException e) {
-		std::cout << "Error code = " << e.getErrorCode() << std::endl;
-		std::cout << e.getMessage() << std::endl;
-	}
-	catch (...) {
-		std::cout << "Exception during optimization" << std::endl;
-	}
-#endif
 }
 
 void DualGraph::cut(std::vector<HE_Vertex>& pVerts, std::vector<std::vector<int> >& pFaces)

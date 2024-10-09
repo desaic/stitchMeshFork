@@ -79,11 +79,8 @@ void MultiResolutionHierarchy::labelMesh(bool pFlip)
 	mDual = new DualGraph(mPoly);
 #endif
 
-	string filename = "gurobi_result.txt";
-
 	std::cout << "------------ UV minimization ------------\n";
-	mDual->gurobiSolver(filename);
-	mDual->loadGurobiResult(filename, pFlip);
+	mDual->gurobiSolver();
 	mDual->findUVMismatch();
 
 	//////////////////////////////////////////////////////////////////////////

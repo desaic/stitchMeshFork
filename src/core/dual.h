@@ -147,10 +147,12 @@ public:
 	int numNodes() const	{ return int(_dualnodes.size()); }
 	int numEdges() const	{ return int(_dualedges.size()); }
 
-	void gurobiSolver(std::string pFilename);
+	void gurobiSolver();
+  void FloodLabels(int fi, std::vector<int>& labels,
+                   std::vector<bool>& visited);
+	//0 and 1 for label values. 2 for unvisited.
+  std::vector<int> SolveLabels();
 	void loadGurobiResult(std::string pFilename, bool pFlip);
-
-	void gurobiSolverHori();
 
 	void cutUVMismatchQuad(std::vector<HE_Vertex>& pVerts, std::vector<std::vector<int> >& pFaces, std::vector<std::vector<bool>>& edgeFlags);
 
