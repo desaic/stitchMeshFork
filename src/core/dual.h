@@ -19,8 +19,6 @@
 #ifndef __Single_Strip_Mesh_Simplification__Dual__
 #define __Single_Strip_Mesh_Simplification__Dual__
 
-#define USE_GUROBI
-
 #include <iostream>
 #include <vector>
 #include <algorithm>
@@ -29,11 +27,6 @@
 
 #include "cyPoint.h"
 #include "HE_Polyhedron.h"
-
-#ifdef USE_GUROBI
-#include "gurobi_c++.h"
-#endif
-
 
 class HE_Polyhedron;
 
@@ -146,10 +139,16 @@ public:
 	int numVertices() const { return int(_avertices.size()); }
 	int numNodes() const	{ return int(_dualnodes.size()); }
 	int numEdges() const	{ return int(_dualedges.size()); }
-
-	void gurobiSolver();
+	/// @brief originally gurobiSolver
+	void OrientFaces();
+  /// @brief 
+  /// @param fi 
+  /// @param labels 2 for unknown. 0 and 1 for label.
+  /// @param visited 
   void FloodLabels(int fi, std::vector<int>& labels,
                    std::vector<bool>& visited);
+  std::vector<const HE_HalfEdge*> DualGraph::NeighborEdges(int fi) const;
+
 	//0 and 1 for label values. 2 for unvisited.
   std::vector<int> SolveLabels();
 	void loadGurobiResult(std::string pFilename, bool pFlip);

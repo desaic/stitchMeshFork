@@ -106,12 +106,6 @@ include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/ext/rply
   # Resource file
   ${CMAKE_CURRENT_BINARY_DIR}
-  # Gurobi
-  "H:/gurobi11.0.3/win64/include"
-)
-
-link_directories(
-	"H:/gurobi11.0.3/win64/lib"
 )
 
 # Run bin2c on resource files
@@ -182,9 +176,7 @@ add_executable(stitch-meshing MACOSX_BUNDLE
   src/main.cpp
 )
 
-target_link_libraries(stitch-meshing stitch-meshing_lib tbb_static nanogui gurobi110 ${NANOGUI_EXTRA_LIBS})
-target_link_libraries(stitch-meshing debug gurobi_c++mtd2017)
-target_link_libraries(stitch-meshing optimized gurobi_c++mt2017)
+target_link_libraries(stitch-meshing stitch-meshing_lib tbb_static nanogui ${NANOGUI_EXTRA_LIBS})
 set_target_properties(stitch-meshing PROPERTIES OUTPUT_NAME "stitch-meshing")
 
 if (WIN32)

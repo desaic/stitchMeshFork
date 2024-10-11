@@ -1220,6 +1220,85 @@ void DualGraph::loadGurobiResult(std::string pFilename, bool pFlip)
 	uvfile.close();
 }
 
+std::vector<int> LabelQuad(const std::vector<int>& nbrLabels) {
+  // vote for setting edge 0 or edge 1 to 1
+  int vote[2] = {};
+  for (size_t i = 0; i < nbrLabels.size(); i++) {
+    int bin = i % 2;
+    if (nbrLabels[i] == 1) {
+      vote[bin]++;
+    } else if (nbrLabels[i] == 0) {
+      vote[1 - bin]++;
+    }  // no vote for unknown label
+  }
+
+  std::vector<int> labels;
+  if (vote[0] > vote[1]) {
+    labels = {1, 0, 1, 0};
+  } else {
+    labels = {0, 1, 0, 1};
+  }
+  return labels;
+}
+
+std::vector<int> LabelTrig(const std::vector<int>& nbrLabels) {
+  if (nbrLabels[0] == nbrLabels[1] && nbrLabels[0] == nbrLabels[2]) {
+		//all same label
+    if (nbrLabels[0] == 2) {
+			//doesn't matter
+      return {0, 1, 1};
+		}
+    if (nbrLabels[0] == 0) {
+      return {1, 0, 0};
+    } else {
+      return {0, 1, 1};
+    }
+  }
+  int zeroCount = 0;
+  int oneCount = 0;
+	// not all labels are the same.
+	// guaranteed to have no conflict.
+  for (int i = 0; i < nbrLabels.size(); i++) {
+    int l = nbrLabels[i];
+    if (l == 0) {
+      zeroCount++;
+    } else if(l==1) {
+      oneCount++;
+    }
+  }
+
+  std::vector<int> labels(nbrLabels.size());
+  // assign unknown edge to opposite of most popular label.
+	int defaultVal = int(zeroCount>oneCount);
+  for (int i = 0; i < nbrLabels.size(); i++) {
+    int l = nbrLabels[i];
+    if (l == 2) {
+      labels[i] = defaultVal;
+    } else {
+      labels[i] = l;
+    }
+  }
+	return labels;
+}
+
+/// @brief get the opposite edges of all edges
+std::vector<const HE_HalfEdge*> DualGraph::NeighborEdges(int fi) const {
+  HE_Face* f = _poly->face(fi);
+  const DualNode& dn = _dualnodes[fi];
+  int outdegree = f->NumHalfEdge();
+  std::vector<const HE_HalfEdge*> neighborEdges(outdegree, nullptr);
+  const auto* e = f->edge();
+  for (int ni = 0; ni < outdegree; ni++) {
+    if (e->isBoundary() || e->degenerate()) {
+      e = e->next();
+      continue;
+    }
+    neighborEdges[ni] = e->twin();
+    e = e->next();
+  }
+  return neighborEdges;
+}
+
 void DualGraph::FloodLabels(int fIn, std::vector<int>& labels,
                             std::vector<bool>& visited) {
   std::deque<int> q;
@@ -1229,9 +1308,11 @@ void DualGraph::FloodLabels(int fIn, std::vector<int>& labels,
     q.pop_front();
 
     HE_Face* f = _poly->face(fi);
-    if (visited[fi]) {
+    if (visited[fi] || f->hole()) {
+      visited[fi] = true;
       continue;
     }
+    visited[fi] = true;
     int offset = _idxOffsets[fi];
     int outdegree = f->NumHalfEdge();
     if (!(outdegree == 3 || outdegree == 4)) {
@@ -1239,39 +1320,42 @@ void DualGraph::FloodLabels(int fIn, std::vector<int>& labels,
                    "triangles and quads\n";
       continue;
     }
+    
+		// gather neighbors' edge labels.
+		const auto* e = f->edge();
+    std::vector<const HE_HalfEdge*> nbrEdges = NeighborEdges(fi);
+    std::vector<int> neighborLabels(outdegree, 2);
+		for (size_t i = 0; i < nbrEdges.size(); i++) {
+      const auto* nbrEdge = nbrEdges[i];
+      if (nbrEdge == nullptr) {
+        continue;
+      }
+      const auto* nbrFace = nbrEdge->face();
+      int nbrOffset = _idxOffsets[nbrFace->index()];
+      int nbri = nbrFace->HalfEdgeIdx(nbrEdge);
+      neighborLabels[i] = labels[nbrOffset + nbri];
+    }
 
+    std::vector<int> faceLabel;
     if (outdegree == 3) {
+      faceLabel = LabelTrig(neighborLabels);
     } else if (outdegree == 4) {
-      // find first neighbor with known edge value.
-      bool hasKnownEdge = false;
-      int knownIndex = 0;
-      const auto* e = f->edge();
-      int fi = e->face()->index();
-      const DualNode & dn = _dualnodes[fi];
-      for (int ni = 0; ni < outdegree; ni++) {
-        if (e->isBoundary()) {
-          continue;
-				}
-        if (e->degenerate()) {
-          continue;
-				}
-        int ei0 = e->index();
-        int ei1;
-        const DualEdge& de = _dualedges[dn.edge(ni)];
-        if (de._hei[0] == ei0) {
-          ei1 = de._hei[1];
-        } else {
-          ei1 = de._hei[0];
-				}
-        if (labels[offset + ni] != 2) {
-          hasKnownEdge = true;
-          knownIndex = ni;
-          break;
-        }
+      faceLabel = LabelQuad(neighborLabels);
+    }
+    for (int ni = 0; ni < outdegree; ni++) {
+      labels[offset + ni] = faceLabel[ni];
+		}
+
+		for (size_t i = 0; i < nbrEdges.size(); i++) {
+      const auto* nbrEdge = nbrEdges[i];
+      if (nbrEdge == nullptr) {
+        continue;
       }
-      if (hasKnownEdge) {
-      } else {
+      const auto* nbrFace = nbrEdge->face();
+      if (visited[nbrFace->index()]) {
+        continue;
       }
+      q.push_back(nbrFace->index());
     }
   }
 }
@@ -1283,20 +1367,17 @@ std::vector<int> DualGraph::SolveLabels() {
     if (f->hole()) continue;
     numVars += f->NumHalfEdge();
   }
-  std::vector<int> labels(numVars, 0);
+  std::vector<int> labels(numVars, 2);
   std::vector<bool> visited(_poly->numFaces(), false);
   for (int fi = 0; fi < _poly->numFaces(); fi++) {
     HE_Face* f = _poly->face(fi);
-    if (f->hole()) continue;
-
-    int offset = _idxOffsets[fi];
-    int outdegree = f->NumHalfEdge();
+    if (f->hole()||visited[fi]) continue;
     FloodLabels(fi, labels, visited);
   }
   return labels;
 }
 
-void DualGraph::gurobiSolver() {
+void DualGraph::OrientFaces() {
   int numVars = 0;
   _gurobiResultPool.clear();
   std::cout << "Face number: " << _poly->numFaces() << std::endl;
@@ -2315,7 +2396,7 @@ void DualGraph::reorderSubdivisionGroupFaceIdx(DualGraph* pDual)
 			}
 		}
 
-		if (pDual->_isLoop[i]) { _groupFaceIdx.push_back(faceList); faceList.clear(); }
+		if (pDual->_isLoop[i] && !faceList.empty()) { _groupFaceIdx.push_back(faceList); faceList.clear(); }
 	
 		for (int j = (int)(*coarseGroupFaceIdx)[i].size() - 1; j >= 0 ; j--)
 		{
@@ -2350,7 +2431,9 @@ void DualGraph::reorderSubdivisionGroupFaceIdx(DualGraph* pDual)
 			}
 		}
 
-		_groupFaceIdx.push_back(faceList);
+    if (!faceList.empty()) {
+      _groupFaceIdx.push_back(faceList);
+    }
 	}
 }
 

@@ -80,7 +80,7 @@ void MultiResolutionHierarchy::labelMesh(bool pFlip)
 #endif
 
 	std::cout << "------------ UV minimization ------------\n";
-	mDual->gurobiSolver();
+  mDual->OrientFaces();
 	mDual->findUVMismatch();
 
 	//////////////////////////////////////////////////////////////////////////
