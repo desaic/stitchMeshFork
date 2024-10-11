@@ -1,6 +1,5 @@
 #include "meshio.h"
 #include <fstream>
-#include <rply.h>
 #include <unordered_map>
 #include "timer.h"
 #include <iomanip>
@@ -105,94 +104,6 @@ void loadTetMesh(const std::string &prefix, MatrixXf &V, MatrixXu &F, MatrixXu &
 	timer.endStage("V=" + std::to_string(V.cols()) + ", F = " +
 		std::to_string(F.cols()) + ", T = " +
 		std::to_string(T.cols()));
-}
-
-void loadTriMesh(const std::string &filename, MatrixXf &V, MatrixXu &F) {
-	auto message_cb = [](p_ply ply, const char *msg) { cerr << "rply: " << msg << endl; };
-
-	Timer<> timer;
-	timer.beginStage("Loading triangle mesh \"" + filename + "\"");
-
-	p_ply ply = ply_open(filename.c_str(), message_cb, 0, nullptr);
-	if (!ply)
-		throw std::runtime_error("Unable to open PLY file \"" + filename + "\"!");
-
-	if (!ply_read_header(ply)) {
-		ply_close(ply);
-		throw std::runtime_error("Unable to open PLY header of \"" + filename + "\"!");
-	}
-
-	p_ply_element element = nullptr;
-	uint32_t vertexCount = 0, faceCount = 0;
-
-	/* Inspect the structure of the PLY file, load number of faces if avaliable */
-	while ((element = ply_get_next_element(ply, element)) != nullptr) {
-		const char *name;
-		long nInstances;
-
-		ply_get_element_info(element, &name, &nInstances);
-		if (!strcmp(name, "vertex"))
-			vertexCount = (uint32_t)nInstances;
-		else if (!strcmp(name, "face"))
-			faceCount = (uint32_t)nInstances;
-	}
-
-	if (vertexCount == 0 || faceCount == 0)
-		throw std::runtime_error("PLY file \"" + filename + "\" is invalid! No face/vertex/elements found!");
-
-	F.resize(3, faceCount);
-	V.resize(3, vertexCount);
-
-	struct VertexCallbackData { MatrixXf &V; };
-	struct FaceCallbackData { MatrixXu &F; };
-
-	auto rply_vertex_cb = [](p_ply_argument argument) -> int {
-		VertexCallbackData *data; long index, coord;
-		ply_get_argument_user_data(argument, (void **)&data, &coord);
-		ply_get_argument_element(argument, nullptr, &index);
-		data->V(coord, index) = (Float)ply_get_argument_value(argument);
-		return 1;
-	};
-
-	auto rply_index_cb = [](p_ply_argument argument) -> int {
-		FaceCallbackData *data;
-		long length, value_index, index;
-		ply_get_argument_property(argument, nullptr, &length, &value_index);
-
-		if (length != 3)
-			throw std::runtime_error("Only triangle faces are supported!");
-
-		ply_get_argument_user_data(argument, (void **)&data, nullptr);
-		ply_get_argument_element(argument, nullptr, &index);
-
-		if (value_index >= 0)
-			data->F(value_index, index) = (uint32_t)ply_get_argument_value(argument);
-
-		return 1;
-	};
-
-	VertexCallbackData vcbData{ V };
-	FaceCallbackData fcbData{ F };
-
-	if (!ply_set_read_cb(ply, "vertex", "x", rply_vertex_cb, &vcbData, 0) ||
-		!ply_set_read_cb(ply, "vertex", "y", rply_vertex_cb, &vcbData, 1) ||
-		!ply_set_read_cb(ply, "vertex", "z", rply_vertex_cb, &vcbData, 2)) {
-		ply_close(ply);
-		throw std::runtime_error("PLY file \"" + filename + "\" does not contain vertex position data!");
-	}
-
-	if (!ply_set_read_cb(ply, "face", "vertex_indices", rply_index_cb, &fcbData, 0)) {
-		ply_close(ply);
-		throw std::runtime_error("PLY file \"" + filename + "\" does not contain vertex indices!");
-	}
-
-	if (!ply_read(ply)) {
-		ply_close(ply);
-		throw std::runtime_error("Error while loading PLY data from \"" + filename + "\"!");
-	}
-
-	ply_close(ply);
-	timer.endStage("V=" + std::to_string(V.cols()) + ", F = " + std::to_string(F.cols()));
 }
 
 void load_obj(const std::string &filename, MatrixXu &F, MatrixXf &V) {

@@ -102,8 +102,6 @@ include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/ext/tbb/include
   # Pseudorandom number generator
   ${CMAKE_CURRENT_SOURCE_DIR}/ext/pcg32
-  # RPLY mesh I/O library
-  ${CMAKE_CURRENT_SOURCE_DIR}/ext/rply
   # Resource file
   ${CMAKE_CURRENT_BINARY_DIR}
 )
@@ -168,7 +166,6 @@ add_library(stitch-meshing_lib
   src/positions.cpp src/positions.h
   src/optimizer.cpp src/optimizer.h
   src/extract.cpp src/extract3D.cpp
-  ext/rply/rply.c
   im_resources.cpp
 )
 
@@ -181,9 +178,7 @@ set_target_properties(stitch-meshing PROPERTIES OUTPUT_NAME "stitch-meshing")
 
 if (WIN32)
   # Quench some warnings on MSVC
-  if (MSVC)
-    set_source_files_properties(ext/rply/rply.c PROPERTIES COMPILE_FLAGS "/wd4127")
-  endif()
+
 elseif (APPLE)
   # Build an application bundle on OSX
   set_target_properties(stitch-meshing PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "stitch-meshing")

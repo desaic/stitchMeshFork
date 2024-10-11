@@ -66,7 +66,6 @@ The remeshing and stitch meshing results will be saved in the same folder as the
 - [PCG32](http://www.pcg-random.org/)
 - [Intel(R) Threading Building Blocks](https://www.threadingbuildingblocks.org/)
 - [Half Edge Library*](http://halfedgelib.sourceforge.net)
-- [RPly library](http://www.impa.br/~diego/software/rply)
 
 \* are included libraries
 
